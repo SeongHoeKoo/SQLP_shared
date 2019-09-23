@@ -1,0 +1,76 @@
+-- 1-1) settings
+
+drop table yoon.t_emp23;
+
+create table yoon.t_emp23 AS
+select  lpad(trim(to_char(rownum)), 5, '0') emp_no
+      , '12345678901234567890123456789012345678901234567890' emp_name
+      , lpad(to_char(round(dbms_random.value(1, 99))), 2, '0') dept_code
+      , lpad(to_char(round(dbms_random.value(2, 99))), 2, '0') div_code
+from dual connect by level <= 99999;
+
+COMMIT;
+
+create public synonym t_emp23 for yoon.t_emp23;
+
+UPDATE T_EMP23
+SET DIV_CODE = '01'
+WHERE EMP_NO <= '00010';
+
+COMMIT;
+
+CREATE INDEX YOON.IX_T_EMP23 ON YOON.T_EMP23(DEPT_CODE);
+
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('YOON', 'T_EMP23');
+
+-- 1-2) problem
+
+/*
+  테이블  T_EMP23
+           EMP_NO      VARCHAR2(5)
+           EMP_NAME    VARCHAR2(50)
+           DEPT_CODE   VARCHAR2(2)
+           DIV_CODE    VARCHAR2(2)
+   
+ 인덱스 정보 YOON.T_EMP23(DEPT_CODE)
+ 
+ DEPT_CODE : 99종류
+ DIV_CODE  : 98종류
+ 전체 데이터 건수 10만건
+ 최종 결과치 : 82
+
+*/
+
+ALTER SESSION SET STATISTICS_LEVEL = ALL;
+/* 1)아래의 실행계획을 보고,  튜닝하세요.
+  - SQL 변경 또는 인덱스 변경 가능 */
+SELECT EMP_NO, EMP_NAME, DEPT_CODE, DIV_CODE
+FROM T_EMP23
+WHERE DEPT_CODE BETWEEN '09'  AND '15'
+ AND  DIV_CODE = '28';
+
+/* 2)아래의 SQL은 우리회사에서 가장 많이 수행되는
+     TOP 1 SQL 이다.  튜닝하세요.
+  - SQL 변경 또는 인덱스 변경 가능 */
+
+SELECT EMP_NAME, DEPT_CODE, DIV_CODE
+FROM T_EMP23
+WHERE DEPT_CODE BETWEEN '09'  AND '15'
+ AND  DIV_CODE = '28';
+
+
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY_CURSOR(NULL, NULL, 'IOSTATS LAST'));
+
+/*
+------------------------------------------------------
+| Id  | Operation         | Name    |A-Rows |Buffers |
+------------------------------------------------------
+|   0 | SELECT STATEMENT  |         |    82 |    960 |
+|*  1 |  TABLE ACCESS FULL| T_EMP23 |    82 |    960 |
+------------------------------------------------------
+ 
+Predicate Information (identified by operation id):
+---------------------------------------------------
+   1 - filter(("DIV_CODE"='28' AND "DEPT_CODE"<='15' AND "DEPT_CODE">='09'))
+ 
+ */
