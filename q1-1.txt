@@ -1,4 +1,4 @@
--- 1-1) settings
+-- 1-1-1) settings
 
 drop table yoon.t_emp23;
 
@@ -23,7 +23,7 @@ CREATE INDEX YOON.IX_T_EMP23 ON YOON.T_EMP23(DEPT_CODE);
 
 EXECUTE DBMS_STATS.GATHER_TABLE_STATS('YOON', 'T_EMP23');
 
--- 1-2) problem
+-- 1-1-2) problem
 
 /*
   테이블  T_EMP23
