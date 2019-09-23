@@ -1,0 +1,81 @@
+-- 1-2-1) settings
+
+
+DROP TABLE YOON.T_CUST22;
+CREATE TABLE YOON.T_CUST22
+  (CUST_NO       VARCHAR2(7),
+   CUS_NM        VARCHAR2(50),
+   CUST_CD       VARCHAR2(3),
+   FLAG          VARCHAR2(3),
+   DIV          VARCHAR2(2),
+   C1            VARCHAR2(30),
+   C2            VARCHAR2(30),
+   C3            VARCHAR2(30),
+   C4            VARCHAR2(30),
+   C5            VARCHAR2(30),
+   CONSTRAINT PK_T_CUST22 PRIMARY KEY (CUST_NO)
+  );
+
+CREATE PUBLIC SYNONYM T_CUST22 FOR YOON.T_CUST22;
+
+INSERT /*+ APPEND */ INTO T_CUST22
+SELECT LPAD(TO_CHAR(ROWNUM), 7, '0')                                    CUST_NO
+     , RPAD(TO_CHAR(ROUND(DBMS_RANDOM.VALUE(1, 65000))), 10, '0')       CUS_NM
+     , LPAD(TO_CHAR(ROUND(DBMS_RANDOM.VALUE(1, 200))) || '0', 3, '0')   CUST_CD
+     , LPAD(TO_CHAR(ROUND(DBMS_RANDOM.VALUE(1, 100))) || '0', 3, '0')   FLAG
+     , LPAD(TO_CHAR(ROUND(DBMS_RANDOM.VALUE(1, 10)))  || '0', 2, '0')   DIV
+     , 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'                                     C1
+     , 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'                                     C2
+     , 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'                                     C3
+     , 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'                                     C4
+     , 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'                                     C5
+FROM DUAL
+CONNECT BY LEVEL <= 200000;
+
+COMMIT;
+
+CREATE INDEX YOON.IX_T_CUST22_01 ON YOON.T_CUST22(CUST_CD, FLAG, DIV);
+
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('YOON', 'T_CUST22');
+/*
+DROP   TABLE YOON.T_주문23;
+CREATE TABLE YOON.T_주문23
+  (주문번호            VARCHAR2(8),
+   주문고객            VARCHAR2(7),
+   주문상품코드        VARCHAR2(3),
+   주문일자            VARCHAR2(8)
+   );
+*/
+
+-- 1-2-2) problem
+
+/*
+PRIMARY KEY : CUST_NO
+인덱스      : CUST_CD + FLAG + DIV
+
+T_CUST22  200만건
+  - CUST_CD   200개 종류(001 ~ 200),  코드당 건수는 약  1만건 
+  - DIV       100개 종류(001 ~ 100),  코드당 건수는 약  2만건
+  - FLAG      10개  종류,    코드당 건수는 약 20만건
+
+-----------------------------------------------------------------------
+| Id  | Operation                   | Name           |A-Rows| Buffers |
+-----------------------------------------------------------------------
+|   0 | SELECT STATEMENT            |                |   122|     296 |
+|   1 |  TABLE ACCESS BY INDEX ROWID| T_CUST22       |   122|     296 |
+|*  2 |   INDEX RANGE SCAN          | IX_T_CUST22_01 |   122|     174 |
+-----------------------------------------------------------------------
+  
+아래 SQL을 보고 튜닝 하시오(인덱스 및 SQL변경 가능)
+*/
+
+ALTER SESSION SET STATISTICS_LEVEL = ALL;
+
+SELECT *
+FROM T_CUST22 
+WHERE  CUST_CD BETWEEN '150' AND '200' 
+AND   DIV IN ('30', '40')
+AND   FLAG = '160'
+;
+
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY_CURSOR(NULL, NULL, 'ALLSTATS LAST'));
