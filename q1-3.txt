@@ -1,0 +1,54 @@
+-- 1-3-1) setting
+
+drop table yoon.t_주문14;
+
+create table yoon.t_주문14 AS
+SELECT A.고객번호, 주문금액, 주문지역코드, B.주문일자
+FROM   (select  'C' || lpad(trim(to_char(rownum)), 4, '0')             고객번호
+              , round(dbms_random.value(10000, 100000))                주문금액
+              , lpad(to_char(round(dbms_random.value(2, 99))), 2, '0') 주문지역코드
+        from dual connect by level <= 1000
+        ) A,
+       (SELECT  TO_CHAR(TO_DATE('20190901', 'YYYYMMDD') - ROWNUM, 'YYYYMMDD') 주문일자
+        FROM DUAL CONNECT BY LEVEL <= 100
+       ) B,
+       (SELECT ROWNUM R_NUM 
+        FROM   DUAL
+        CONNECT BY LEVEL <= 100
+       )
+;
+
+create public synonym t_주문14 for yoon.t_주문14;
+
+CREATE INDEX YOON.IX_t_주문14_01 ON YOON.t_주문14(주문금액);
+
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('YOON', 't_주문14');
+
+-- 1-3-2) problem
+ALTER SESSION SET STATISTICS_LEVEL = ALL;
+
+SELECT  고객번호, 주문금액, 주문지역코드, 주문일자, C1, C2, C3
+FROM t_주문14 
+WHERE 주문금액     BETWEEN 80000 AND 81000
+ AND  주문지역코드 IN (:1, :2)
+ AND  주문일자     BETWEEN  '20190710' AND '20190711'
+;
+
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY_CURSOR(NULL, NULL, 'IOSTATS LAST'));
+
+/*
+PLAN_TABLE_OUTPUT
+------------------------------------------------------------------------------------------------------
+| Id  | Operation                   | Name         | Starts | E-Rows | A-Rows |   A-Time   | Buffers |
+------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT            |              |      1 |        |    400 |00:00:00.08 |    2865 |
+|*  1 |  TABLE ACCESS BY INDEX ROWID| T_주문14     |      1 |     62 |    400 |00:00:00.08 |    2865 |
+|*  2 |   INDEX RANGE SCAN          | IX_T_주문14_0|      1 |    131K|  70000 |00:00:00.02 |     163 |
+------------------------------------------------------------------------------------------------------
+ 
+Predicate Information (identified by operation id):
+---------------------------------------------------
+ 
+   1 - filter(("주문일자">='20190710' AND INTERNAL_FUNCTION("주문지역코드") AND "주문일자"<='20190711'))
+   2 - access("주문금액">=80000 AND "주문금액"<=81000) 
+*/
