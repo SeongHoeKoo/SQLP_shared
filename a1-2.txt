@@ -1,0 +1,58 @@
+/*
+인덱스 조정
+
+T_CUST22 : FLAG + DIV + CUST_CD  또는  DIV + FLAG + CUST_CD
+
+AS-IS
+PLAN_TABLE_OUTPUT
+--------------------------------------------------------------------------------------------------------------
+| Id  | Operation                   | Name        | Starts | E-Rows | A-Rows |   A-Time   | Buffers | Reads  |
+--------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT            |             |      1 |        |   1333 |00:00:00.13 |    3047 |   1325 |
+|   1 |  TABLE ACCESS BY INDEX ROWID| T_CUST22    |      1 |   1099 |   1333 |00:00:00.13 |    3047 |   1325 |
+|*  2 |   INDEX RANGE SCAN          | IX_T_CUST22 |      1 |   1099 |   1333 |00:00:00.07 |    1714 |    203 |
+--------------------------------------------------------------------------------------------------------------
+ 
+Predicate Information (identified by operation id):
+---------------------------------------------------
+ 
+   2 - access("CUST_CD">='150' AND "FLAG"='10' AND "CUST_CD"<='200')
+       filter(("FLAG"='10' AND INTERNAL_FUNCTION("DIV")))
+ 
+ 
+TO-BE
+PLAN_TABLE_OUTPUT
+------------------------------------------------------------------------------------------------------------------
+| Id  | Operation                    | Name           | Starts | E-Rows | A-Rows |   A-Time   | Buffers | Reads  |
+------------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT             |                |      1 |        |   1333 |00:00:00.06 |    1345 |   1230 |
+|   1 |  INLIST ITERATOR             |                |      1 |        |   1333 |00:00:00.06 |    1345 |   1230 |
+|   2 |   TABLE ACCESS BY INDEX ROWID| T_CUST22       |      2 |   1329 |   1333 |00:00:00.06 |    1345 |   1230 |
+|*  3 |    INDEX RANGE SCAN          | IX_T_CUST22_01 |      2 |   1329 |   1333 |00:00:00.01 |      12 |      6 |
+------------------------------------------------------------------------------------------------------------------
+ 
+Predicate Information (identified by operation id):
+---------------------------------------------------
+ 
+   3 - access("FLAG"='10' AND (("DIV"='010' OR "DIV"='100')) AND "CUST_CD">='150' AND "CUST_CD"<='200')
+ 
+ 
+*/
+
+DROP INDEX  YOON.IX_T_CUST22_01;
+
+CREATE INDEX YOON.IX_T_CUST22_01 
+ON YOON.T_CUST22(FLAG, DIV, CUST_CD);
+
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('YOON', 'T_CUST22');
+
+ALTER SESSION SET STATISTICS_LEVEL = ALL;
+
+SELECT *
+FROM T_CUST22 
+WHERE  CUST_CD BETWEEN '150' AND '200' --567459
+AND   DIV IN ('010', '100')
+AND   FLAG = '10'
+;
+
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY_CURSOR(NULL, NULL, 'ALLSTATS LAST'));
