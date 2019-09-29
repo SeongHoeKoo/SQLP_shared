@@ -1,0 +1,82 @@
+-- 2-1-1) setting
+DROP TABLE YOON.T_IN_LIST;
+CREATE TABLE YOON.T_IN_LIST
+   (  C1    VARCHAR2(7)
+    , C2    VARCHAR2(5)
+    , C3    VARCHAR2(5)
+    , C4    VARCHAR2(5)
+    , C5    VARCHAR2(50)
+    , C6    VARCHAR2(50)
+    , C7    VARCHAR2(50)
+    , C8    VARCHAR2(50)
+    , C9    VARCHAR2(50)
+    , C10    VARCHAR2(50)
+    , CONSTRAINT PK_T_IN_LIST PRIMARY KEY( C1 )
+    );
+    
+CREATE PUBLIC SYNONYM T_IN_LIST FOR YOON.T_IN_LIST;
+
+INSERT /*+ APPEND */ INTO T_IN_LIST
+SELECT  LPAD(TO_CHAR(ROWNUM), 7, '0') C1
+      , LPAD(TO_CHAR(ROUND(DBMS_RANDOM.VALUE(1, 1000))), 5, '0') C2
+      , LPAD(TO_CHAR(ROUND(DBMS_RANDOM.VALUE(1, 100))), 5, '0')  C3
+      , LPAD(TO_CHAR(ROUND(DBMS_RANDOM.VALUE(1, 100))), 5, '0')  C4
+      , '12345678901234567890123456789012345678901234567890'  C5
+      , '12345678901234567890123456789012345678901234567890'  C6
+      , '12345678901234567890123456789012345678901234567890'  C7
+      , '12345678901234567890123456789012345678901234567890'  C8
+      , '12345678901234567890123456789012345678901234567890'  C9
+      , '12345678901234567890123456789012345678901234567890'  C10
+FROM DUAL
+CONNECT BY LEVEL <= 1000000
+;
+
+COMMIT;
+
+CREATE INDEX YOON.IX_T_IN_LIST_01  ON YOON.T_IN_LIST(C2, C4,  C3);
+
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('YOON', 'T_IN_LIST');
+
+-- 2-1-2) question
+--아래 SQL을 튜닝 전 후의 실행계획을 보고 튜닝하시오.
+--단 인덱스는 변경할 수 없습니다.
+CREATE INDEX YOON.IX_T_IN_LIST_01  ON YOON.T_IN_LIST(C2, C4, C3);
+
+ALTER SESSION SET STATISTICS_LEVEL = ALL;
+
+SELECT  *
+FROM T_IN_LIST
+WHERE C2 = '00050'
+ AND  C3 IN ('00033', '00034', '00035', '00036', '00043', '00044', '00045', 
+             '00046', '00053', '00054', '00055', '00056', '00063', '00064', 
+             '00065', '00066', '00073', '00074', '00075', '00076', '00083', 
+             '00084', '00085', '00086'
+             )
+ AND  C4 = '00054';
+
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY_CURSOR(NULL, NULL, 'ALLSTATS LAST'));
+/*
+인덱스
+CREATE INDEX YOON.IX_T_IN_LIST_01  ON YOON.T_IN_LIST(C2, C4, C3); 
+
+튜닝 전
+PLAN_TABLE_OUTPUT
+-------------------------------------------------------------------------
+| Id  | Operation                    | Name            |A-Rows| Buffers |
+-------------------------------------------------------------------------
+|   0 | SELECT STATEMENT             |                 |     3|      40 |
+|   1 |  INLIST ITERATOR             |                 |     3|      40 |
+|   2 |   TABLE ACCESS BY INDEX ROWID| T_IN_LIST       |     3|      40 |
+|*  3 |    INDEX RANGE SCAN          | IX_T_IN_LIST_01 |     3|      37 |
+-------------------------------------------------------------------------
+
+튜닝 후
+PLAN_TABLE_OUTPUT
+------------------------------------------------------------------------
+| Id  | Operation                   | Name            |A-Rows| Buffers |
+------------------------------------------------------------------------
+|   0 | SELECT STATEMENT            |                 |     3|       7 |
+|   1 |  TABLE ACCESS BY INDEX ROWID| T_IN_LIST       |     3|       7 |
+|*  2 |   INDEX RANGE SCAN          | IX_T_IN_LIST_01 |     3|       4 |
+------------------------------------------------------------------------
+*/
