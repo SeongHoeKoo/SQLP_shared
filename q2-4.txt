@@ -1,0 +1,96 @@
+-- 2-4-1) setting
+DROP   TABLE YOON.T_고객23;
+CREATE TABLE YOON.T_고객23
+  (고객번호      VARCHAR2(7),
+   고객명        VARCHAR2(50),
+   고객성향코드  VARCHAR2(3),
+   C1            VARCHAR2(30),
+   C2            VARCHAR2(30),
+   C3            VARCHAR2(30),
+   C4            VARCHAR2(30),
+   C5            VARCHAR2(30),
+   CONSTRAINT PK_T_고객23 PRIMARY KEY (고객번호)
+  );
+
+CREATE PUBLIC SYNONYM T_고객23 FOR YOON.T_고객23;
+
+INSERT /*+ APPEND */ INTO T_고객23
+SELECT LPAD(TO_CHAR(ROWNUM), 7, '0')                                    고객번호
+     , RPAD(TO_CHAR(ROUND(DBMS_RANDOM.VALUE(1, 65000))), 10, '0')       고객명
+     , LPAD(TO_CHAR(ROUND(DBMS_RANDOM.VALUE(1, 200))) || '0', 3, '0')   고객성향코드
+     , 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'                                     C1
+     , 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'                                     C2
+     , 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'                                     C3
+     , 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'                                     C4
+     , 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'                                     C5
+FROM DUAL
+CONNECT BY LEVEL <= 20000;
+
+COMMIT;
+
+DROP   TABLE YOON.T_DATE23;
+CREATE TABLE YOON.T_DATE23 AS
+SELECT TO_CHAR(TO_DATE('20170101', 'YYYYMMDD') + LEVEL, 'YYYYMMDD') WORK_DATE
+FROM DUAL
+CONNECT BY LEVEL <= 100;
+
+CREATE PUBLIC SYNONYM T_DATE23 FOR YOON.T_DATE23;
+
+DROP TABLE  YOON.T_주문23 ;
+CREATE TABLE YOON.T_주문23 AS
+SELECT  'O' || LPAD(TO_CHAR(ROWNUM), 7, '0')                                    주문번호
+      ,  C.고객번호
+      , 'P' || LPAD(TO_CHAR(ROUND(DBMS_RANDOM.VALUE(1, 200))) || '0', 3, '0')   상품코드
+      ,  D.WORK_DATE                                                            주문일자
+      , ROUND(DBMS_RANDOM.VALUE(1, 3))                                          주문수량        
+FROM T_고객23 C, T_DATE23 D
+;
+
+CREATE PUBLIC SYNONYM T_주문23 FOR YOON.T_주문23;
+
+ALTER TABLE YOON.T_주문23 
+ADD CONSTRAINT PK_T_주문23 PRIMARY KEY(주문번호)
+;
+
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('YOON', 'T_고객23');
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('YOON', 'T_주문23');
+
+-- 2-4-2) question
+/* 아래 SQL을 OLTP에 최적화 하여 튜닝 하세요.  (인덱스 및 SQL 수정 가능)
+   최종 결과 값 : 18건
+   
+   T_고객23 
+      - 총건수               : 2만건
+      - 고객성향코드 = '920' : 101건
+      - 고객성향코드 종류    : 200종류
+      
+      - 인덱스 : PK_T_고객23 (고객번호)
+   T_주문23
+      - 총 건수: 200만건
+      - 아래 조건의 결과 : 10,000건
+        O.주문일자 LIKE '201701%' AND O.상품코드 = 'P103'   
+      - 인덱스 : PK_T_주문23 (주문번호)
+*/
+
+ALTER SESSION SET STATISTICS_LEVEL = ALL;
+
+SELECT C.고객번호,
+       O.주문번호, O.상품코드, O.주문일자, O.주문수량
+FROM T_고객23 C, T_주문23 O
+WHERE C.고객성향코드 = '920'
+ AND  O.고객번호     = C.고객번호
+ AND  O.주문일자     LIKE '201701%'
+ AND  O.상품코드     = 'P103';
+
+
+/*
+PLAN_TABLE_OUTPUT
+------------------------------------------------------------
+| Id  | Operation          | Name   |A-Rows | Buffers | Reads 
+-------------------------------------------------------------
+|   0 | SELECT STATEMENT   |        |    18 |   11363 |  10793 
+|*  1 |  HASH JOIN         |        |    18 |   11363 |  10793 
+|*  2 |   TABLE ACCESS FULL| T_고객2|   108 |     461 |      0
+|*  3 |   TABLE ACCESS FULL| T_주문2|  3070 |   10902 |  10793 
+--------------------------------------------------------------
+ */
