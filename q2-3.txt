@@ -1,0 +1,101 @@
+-- 2-3-1) setting
+drop table yoon.t_emp;
+create table yoon.t_emp 
+  (emp_no      varchar2(5),
+   emp_name    varchar2(50),
+   dept_code   varchar2(2),
+   div_code    varchar2(2)       
+   );
+
+create public synonym t_emp for yoon.t_emp;
+
+alter table yoon.t_emp
+add constraint pk_t_emp primary key(emp_no)
+using index;
+
+insert /*+ append */ into t_emp
+select  lpad(trim(to_char(rownum)), 5, '0') emp_no
+      , '12345678901234567890123456789012345678901234567890' emp_name
+      , lpad(to_char(round(dbms_random.value(1, 99))), 2, '0') dept_code
+      , lpad(to_char(round(dbms_random.value(2, 99))), 2, '0') div_code
+from dual connect by level <= 99999;
+
+COMMIT;
+
+UPDATE T_EMP
+SET DIV_CODE = '01'
+WHERE EMP_NO <= '00010';
+
+SELECT * FROM T_EMP WHERE EMP_NO <= '00010';  
+SELECT * FROM T_EMP WHERE DIV_CODE = '01';
+
+commit;
+
+drop table yoon.t_dept;
+
+create table yoon.t_dept
+ (
+  dept_code   varchar2(2),
+  dept_name   varchar2(50),
+  loc         varchar2(2)
+);
+
+create public synonym t_dept for yoon.t_dept;
+
+alter table yoon.t_dept
+add constraint pk_t_dept primary key(dept_code)
+using index;
+
+insert /*+ append */ into t_dept
+select lpad(trim(to_char(rownum)), 2, '0') 부서코드
+     , lpad(trim(to_char(rownum)), 2, '0') 부서명
+     , lpad(to_char(round(dbms_random.value(1, 10))), 2, '0') 지역
+from dual connect by level <= 99;
+
+commit;
+
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('YOON', 'T_EMP');
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('YOON', 'T_DEPT');
+
+-- 2-3-2) question
+/*  테이블 
+       - 사원 (10,000건), 부서(100건)
+
+    INDEX 
+       - 사원PK : EMP_NO   
+       - 부서PK : DEPT_CODE
+
+아래 SQL을 튜닝 하세요.
+
+  문제 1) E.DIV_CODE='01'의 결과 : 10건,   D.LOC='01'의 결과 30건
+  문제 2) E.DIV_CODE='01'의 결과 : 100건,   D.LOC='01'의 결과 30건
+
+
+*/
+SELECT  /*+ ORDERED USE_NL(D) */
+        E.EMP_NO,  E.EMP_NAME,  E.DIV_CODE,  
+        D.DEPT_CODE,  D.DEPT_NAME,  D.LOC
+FROM  T_EMP  E,  T_DEPT  D
+WHERE E.DIV_CODE    = '01'
+ AND  D.DEPT_CODE   = E.DEPT_CODE
+ AND  D.LOC         = '01';
+
+/*
+--------------------------------------------------------------------
+| Id  | Operation                    | Name      |A-Rows | Buffers |
+--------------------------------------------------------------------
+|   0 | SELECT STATEMENT             |           |     1 |     965 |
+|   1 |  NESTED LOOPS                |           |     1 |     965 |
+|   2 |   NESTED LOOPS               |           |    10 |     955 |
+|*  3 |    TABLE ACCESS FULL         | T_EMP     |    10 |     950 |
+|*  4 |    INDEX UNIQUE SCAN         | PK_T_DEPT |    10 |       5 |
+|*  5 |   TABLE ACCESS BY INDEX ROWID| T_DEPT    |     1 |      10 |
+--------------------------------------------------------------------
+ 
+Predicate Information (identified by operation id):
+---------------------------------------------------
+ 
+   3 - filter("E"."DIV_CODE"='01')
+   4 - access("D"."DEPT_CODE"="E"."DEPT_CODE")
+   5 - filter("D"."LOC"='01')
+*/
