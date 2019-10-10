@@ -1,0 +1,233 @@
+기본문제21
+문제1)
+
+인덱스 추가
+IX_T_EMP_01 : DIV_CODE, DEPT_CODE
+IX_T_DEPT_01 : DEPT_CODE LOC
+
+SELECT  /*+ ORDERED USE_NL(D) */
+        E.EMP_NO,  E.EMP_NAME,  E.DIV_CODE,  
+        D.DEPT_CODE,  D.DEPT_NAME,  D.LOC
+FROM  T_EMP  E,  T_DEPT  D
+WHERE E.DIV_CODE    = '01'
+ AND  D.DEPT_CODE   = E.DEPT_CODE
+ AND  D.LOC         = '01';
+
+
+문제2)
+
+인덱스 추가
+IX_T_EMP_01 : DEPT_CODE, DIV_CODE
+IX_T_DEPT_01 : LOC, DEPT_CODE
+
+SELECT  /*+ ORDERED USE_NL(E) */
+        E.EMP_NO,  E.EMP_NAME,  E.DIV_CODE,  
+        D.DEPT_CODE,  D.DEPT_NAME,  D.LOC
+FROM  T_DEPT  D, T_EMP  E  
+WHERE D.LOC         = '01'
+ AND  E.DIV_CODE    = '01'
+ AND  D.DEPT_CODE   = E.DEPT_CODE
+;
+
+기본문제23
+
+인덱스 추가
+IX_T_고객23_01 : 고객성향코드, 고객번호
+IX_T_주문23_01 : 고객번호, 상품코드, 주문일자
+
+
+
+SELECT /*+ ORDERED USE_NL(O) */ C.고객번호,
+       O.주문번호, O.상품코드, O.주문일자, O.주문수량
+FROM T_고객23 C, T_주문23 O
+WHERE C.고객성향코드 = '920'
+ AND  O.고객번호     = C.고객번호
+ AND  O.상품코드     = 'P103';
+ AND  O.주문일자     LIKE '201701%'
+;
+
+
+
+2주차 내용정리
+
+Online
+수직적 탐색의 효율화(In 조건 활용)
+수평적 스캔의 선택도 높이기(Sequential Access / Index Matching도 -> 모든 Index 조건이 Driving 조건으로 읽힘)
+Table Random I/O 비율을 줄임(모든 조건절의 컬럼이 Index에 있어야함)
+
+Batch
+
+
+
+Clustered Index(ANSI) = IOT(Oracle)
+
+Root와 Branch가 있으면 = B-Tree Index
+IOT는 B-Tree Index가 맞다.
+
+----
+8. 인덱스 스캔 효율
+
+0)
+Distinct : 값의 종류의 갯수 (높은게 좋다)
+선택도 : 1/Distinct (낮은게 좋다)
+Cardinality : 선택도 * 전체 Row 수 (낮은게 좋다)
+분포도 : 특정값의 Row 수/ 전체 Row 수(낮은게 좋다) -> unique index가 가장 좋다
+
+3)
+between 조건을 in-list로 변경했을때 인덱스 스캔 효율
+ - in-list 개수가 많지 않아야 함
+ => in의 개수가 많고 그 이전의 index가 변별력이 높아 ㅋ수직적 탐색의 비효율을 줄일 가능성이 있을때
+ 일부러 좌변가공 (TRIM(COULMN) 혹은 COULMN || '')을 하는 방법도 있음.
+
+4)
+INDEX SKIP SCAN(HINT - INDEX_SS) 선두컬럼이 BETWEEN 조건일 떄
+해당 BRANCH만큼만 읽어서 비효율을 줄일 수 있음
+* cr = logical read(consistency read)
+* optimizer hint => INDEX(table(alias) INDEX_NAME) => 시험에 INDEX_NAME이 안주어졌으면 안쓰거나
+컬럼명을 써야함
+* INDEX FULL SCAN => INDEX_FS
+* INDEX FAST FULL SCAN => INDEX_FFS
+* INDEX DESCENDING SCAN => INDEX_DESC
+
+5) 범위검색 조건을 남용할때 발생하는 비효율
+UNION ALL이나 NVL을 이용하여 비효율을 줄임
+* = NULL은 항상 FALSE(IS NULL과 다름)
+
+6) 같은 컬럼에 두 개의 범위검색 조건 사용시 주의 사항
+ - paging처리 driving coulmn 변경(trim 이용)
+
+7) BETWEEN과 LIKE 스캔 범위 비교
+ - BETWEEN을 사용하면 성능적으로 손해볼 것은 없다.
+ - 개발자의 편리에 의해 LIKE 사용
+
+8) 선분이력의 인덱스 스캔 효율
+ - INDEX_DESC로 읽고 ROWNUM 조건을 건다.
+ => 최근 데이터를 주로 읽을 때 : 인덱스 : 종료일자 + 시작일자
+    과거 데이터를 주로 읽을 때 : 인덱스 : 시작일자 + 종료일자
+    인덱스 수정이 불가 할때 : INDEX_DESC
+    중간 지점을 읽을 때 : ROWNUM <= 1 활용
+    * 최근 데이터는 종료일자 = '99991231'로
+
+9. 인덱스 종류
+ 가) B*Tree 인덱스
+   
+   4) 인덱스 재생성
+    - 
+    * 먼저 읽히는 테이블(Driving/Outer 테이블) / 나중에 읽히는 테이블(Lookup/Inner 테이블)
+      Lookup 테이블은 수직적 탐색에 대한 부담이 크다
+
+ 나) 비트맵 인덱스
+  - Distinct 개수가 적은 0/1/NULL로 생성된 인덱스
+  - 테이블 Row만큼 Index 컬럼이 생성됨
+  - 단독으로 사용하지 않고 여러 비트맵 인덱스를 동시사용할때 성능 좋음.(DW - Start Schema)
+  - DML(INSERT/UPDATE/DELETE)에서는 부하가 크다 -- OLTP에서는 쳐다보지 마라
+
+ 다) 함수기반 인덱스
+  
+ 라) 리버스 인덱스
+
+ 마) 클러스터 인덱스(오라클, ANSI clustered index를 말하는게 아님)
+  - 인덱스와 데이터가 1:N 관계이다. / B*Tree Index(구조)이다.
+  - 해당 키 값을 저장하는 첫 번째 데이터 블록만 가리킨다.
+  - 넓은 범위 검색에 유리
+  - 새로운 값이 자주 입력되거나 수정이 발셍할 경우에는 비효율
+
+ 바) IOT
+
+10. 인덱스 설계
+ 
+ 가) 결합 인덱스 구성 기본 공식
+   1. 조건절에 항상 사용되는가?
+   2. EQ 조건으로 사용되는가?
+   3. 카디널리티가 좋은가?
+   4. 소트 오퍼레이션을 생략 가능한가?
+
+ 나) 추가 고려사항
+   - 쿼리 수행 빈도
+   - 업무상 중요도
+   - 클러스터링 팩터(CF)
+   - 데이터량 등등
+
+** 인덱스 최종 정리
+ 1) 수직적 탐색 - Random I/O - 찾고자 하는 시작점 검색 - 인덱스 리빌드/in-list iterator
+ 2) 수평적 스캔 - Sequential I/O - 찾고자 하는 끝점까지 탐색 - 인덱스 매칭도
+ 3) Table Random I/O - Leaf Node에서 rowid를 가지고 - 조회조건의 컬럼 모두 Index로 구성
+
+** 인덱스 스캔 효율 - 인 비 스 범 같 이 선
+----------
+
+* Join
+
+  1. Nested Loop Join
+    - Random Access 위주의 조인방식
+    - 조인을 한 레코드씩 순차적 진행
+    - 대용량 처리 시 부하 발생
+    - 인덱스 구성 전략이 매우 중요
+    - 온라인 트랜잭션 환경에 적합
+    - HINT => USE_NL
+
+    * Prefetch(physical read를 감소)
+      - Disk I/O 부하를 감소시키기 위한 기능
+      - Index Prefetch
+        : 읽을 것으로 예상되는 leaf block을 미리 읽음.
+      - Table Prefetch
+        : 인덱스 경유 테이블 접근 시 디스크에서 버퍼 캐시로 블록 적재 할 때 다른 블록까지 미리적재
+      - 한 번에 여러 개 Single Block I/O를 동시에 수행
+
+      - Multiblock I/O도 Prefetch 기능 중 하나
+        : Multiblock은 하나의 익스텐트 내의 근접 블록을 Read.
+        : Prefetch는 서로 다른 Extent에 위치한 블록을 배치로 Read.
+          * 디스크 튜닝은 분산이다.
+
+    * awR
+      - CPU 50%
+      - db file Sequential read
+
+    * Batch I/O
+      - Disk I/O를 줄임.
+      - Disk I/O 발생 시 정렬 순서 상이.ㅍㅌ
+
+  2. Sort-merge Join
+    - 조인 컬럼의 인덱스 유무와 상관없음
+    - PGA 영역에서 처리하므로 속도가 빠름
+    - 부분범위처리 가능
+    - 스캔위주의 방식(Radom Access X)
+    - Hing => USE_MERGE
+    * 조인 조건식이 EQ가 아닐 때 효율적 활용 가능
+
+  3. Hash Join
+    - 두 개의 테이블 중 작은 집합을 읽어 Hash Area에 적재(Build Input)하고
+      반대쪽 큰 집합을 읽어 탐색(Probe Input)
+    - EQ 조건만 가능
+    - Hint => USE_HASH
+    - SWAP_JOIN_INPUTS => Build Input
+    * 사용 기준
+      * Build Input이 Hash Area 크기 보다 작아야 성능이 좋다.(Disk I/O가 많아지기 떄문)
+        : 클 경우 => Connection Pool에서는 사용하지 말 것 / Parallel에서도 마찬가지
+          ALTER SESSION SET WORKAREA_SIZE_POLICY = MANUAL;
+          ALTER SESSION SET HASH_AREA_SIZE = 2,000,000,000; (2GB)
+          ALTER SESSION SET SORT_AREA_SIZE = 2,000,000,000; (Index Rebuild 시)
+      * Build Input 해시 키 컬럼에 중복 값이 거의 없어야 함.
+    
+    * 실행계획 순서 => 위에서 아래로 안쪽에서 바깥으로 라는 기본이 아닌 경우(LEADING HINT)
+
+  4. Join 순서의 중요성
+    - Driving이 적은쪽
+    - Join 시 컬럼 = 상수 식으로 사용
+    ** 개발표준 : 통상적으로 Where 밑으로 1) Driving 테이블의 조건 2) Join 컬럼 = 상수 3) ㄹCheck 조건
+
+  5. Outer Join
+    * Outer NL Join / Outer Sort Merge Join
+      - (+)의 반대쪽이 Driving Table로 선택됨.
+    * Outer Hash Join
+      - 기본적으로 (+)의 반대쪽이 드라이빙 테이블로 선택되지만
+      - 강제적으로 Build Input 변경 가능(SWAP_JOIN_INPUTS와 (+) // Right Outer Hash Join)
+
+  6. Scalar Subquery를 이용한 Join
+    
+  7. Join을 내포한 DML Tuning
+  
+  8. 고급 Join Technique
+    1) 누적매출 구하기
+      - 큰쪽을 Group By 하여, 큰쪽 MIN/MAX는 당월 매출, 작은쪽 SUM은 누적 매출
+    2) 선분이력 끊기 => 다음주
