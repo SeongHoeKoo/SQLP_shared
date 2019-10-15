@@ -1,0 +1,145 @@
+-- 3-3-1) setting
+
+DROP TABLE YOON.T_CUST54;
+CREATE TABLE YOON.T_CUST54
+  (  CUST_NO       VARCHAR2(6)
+   , CUST_NM      VARCHAR2(50)
+   , CUST_TYPE    VARCHAR2(4)
+   , C11          VARCHAR2(50)
+   , C12          VARCHAR2(50)
+   , C13          VARCHAR2(50)
+   , CONSTRAINT PK_T_CUST54 PRIMARY KEY (CUST_NO)
+   );
+   
+CREATE PUBLIC SYNONYM T_CUST54 FOR YOON.T_CUST54;
+
+INSERT /*+ APPEND */ INTO T_CUST54
+SELECT LPAD(TO_CHAR(ROWNUM), 6, '0')  CUST_NO
+     , LPAD(TO_CHAR(ROWNUM), 50, '0') CUST_NM
+     , 'C'|| LPAD(TO_CHAR(MOD(ROWNUM, 200)), 3, '0')        CUST_TYPE
+     , '12345678901234567890123456789012345678901234567890' C11
+     , '12345678901234567890123456789012345678901234567890' C12
+     , '12345678901234567890123456789012345678901234567890' C13
+FROM DUAL
+CONNECT BY LEVEL <= 100000
+;
+
+COMMIT;
+
+DROP INDEX YOON.IX_T_CUST54_01;
+CREATE INDEX YOON.IX_T_CUST54_01 ON YOON.T_CUST54(CUST_TYPE);
+
+
+DROP TABLE YOON.T_HOBBY54;
+CREATE TABLE YOON.T_HOBBY54
+  (  CUST_NO        VARCHAR2(6)
+   , HOBBY_TYPE     VARCHAR2(1)
+   , C11            VARCHAR2(50)
+   , C12            VARCHAR2(50)
+   , C13            VARCHAR2(50)
+   , CONSTRAINT PK_HOBBY54 PRIMARY KEY (CUST_NO, HOBBY_TYPE)
+   );
+   
+CREATE PUBLIC SYNONYM T_HOBBY54 FOR YOON.T_HOBBY54;
+
+INSERT /*+ APPEND */ INTO T_HOBBY54
+SELECT   CUST_NO, B.R_ID HOBBY_TYPE
+       , '12345678901234567890123456789012345678901234567890' C11
+       , '12345678901234567890123456789012345678901234567890' C12
+       , '12345678901234567890123456789012345678901234567890' C13
+FROM T_CUST54 A, (SELECT ROWNUM R_ID FROM DUAL CONNECT BY LEVEL <= 3) B
+;
+
+COMMIT;
+
+DROP TABLE YOON.T_ORDER54;
+CREATE TABLE YOON.T_ORDER54
+   ( ORDER_NO     VARCHAR2(7)
+   , CUST_NO      VARCHAR2(6)
+   , ORDER_DT     VARCHAR2(8)
+   , ORDER_TYPE   VARCHAR2(3)
+   , C11          VARCHAR2(50)
+   , C12          VARCHAR2(50)
+   , C13          VARCHAR2(50)
+   , CONSTRAINT PK_T_ORDER54 PRIMARY KEY(ORDER_NO)
+   );
+   
+CREATE PUBLIC SYNONYM T_ORDER54 FOR YOON.T_ORDER54;
+
+INSERT /*+ APPEND */ INTO T_ORDER54
+SELECT LPAD(TO_CHAR(ROWNUM), 7, '0') ORDER_NO
+     , CUST_NO
+     , CASE WHEN MOD(ROWNUM, 2000) = 0 THEN NULL ELSE TO_CHAR(SYSDATE-ROUND(ROWNUM / 10000), 'YYYYMMDD') END ORDER_DT
+     , LPAD(TO_CHAR(B.R_ID), 3, '0') ORDER_TYPE
+     , '12345678901234567890123456789012345678901234567890' C11
+     , '12345678901234567890123456789012345678901234567890' C12
+     , '12345678901234567890123456789012345678901234567890' C13
+FROM T_CUST54, (SELECT ROWNUM R_ID FROM DUAL CONNECT BY LEVEL <= 30) B
+;
+
+COMMIT;
+
+DROP INDEX YOON.IX_T_ORDER54_01 ;
+CREATE INDEX YOON.IX_T_ORDER54_01 ON YOON.T_ORDER54(CUST_NO);
+
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('YOON', 'T_CUST54');
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('YOON', 'T_HOBBY54');
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('YOON', 'T_ORDER54');
+
+
+-- 3-3-2) problem
+
+/* 문제)  다음 조건을 보고 아래 OLTP용  SQL을 튜닝하시오.
+T_CUST54   : 총  10만건
+     CUST_NO    VARCHAR2(6)   <== PK
+     CUST_NM    VARCHAR2(50)
+     CUST_TYPE  VARCHAR2(4) 
+     기타 추가 칼럼 많음
+     
+T_HOBBY54  : 총  30만건
+   CUST_NO    VARCHAR2(6)    <== PK
+   HOBBY_TYPE VARCHAR2(1)    <== PK
+   기타 추가 칼럼 많음
+   
+T_ORDER54  : 총 300만건
+   ORDER_NO   VARCHAR2(7)  <== PK
+   CUST_NO    VARCHAR2(6)
+   ORDER_DT   VARCHAR2(8)
+   ORDER_TYPE VARCHAR2(3)
+   기타 추가 칼럼 많음
+
+CREATE INDEX YOON.IX_T_ORDER54_01 ON YOON.T_ORDER54(CUST_NO);
+CREATE INDEX YOON.IX_T_CUST54_01 ON YOON.T_CUST54(CUST_TYPE);
+*/
+SELECT /*+ LEADING (C H O@T_ORDER54) USE_NL(H) */ C.CUST_NO, C.CUST_NM, H.HOBBY_TYPE, H.C11
+FROM T_CUST54 C,  T_HOBBY54 H
+WHERE C.CUST_TYPE    = 'C010'
+  AND H.CUST_NO = C.CUST_NO
+  AND EXISTS (SELECT /*+ QB_NAME(T_ORDER54) NO_UNNEST */ 1
+              FROM T_ORDER54 O
+              WHERE CUST_NO    = C.CUST_NO
+               AND  ORDER_TYPE = '010'
+               AND  ORDER_DT IS NULL );
+/*
+------------------------------------------------------------------------------------------------------------
+| Id  | Operation                      | Name            | Starts | A-Rows |   A-Time   | Buffers | Reads  |
+------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT               |                 |      1 |     18 |00:02:05.63 |   19497 |  16378 |
+|*  1 |  FILTER                        |                 |      1 |     18 |00:02:05.63 |   19497 |  16378 |
+|   2 |   NESTED LOOPS                 |                 |      1 |   1500 |00:00:13.52 |    3015 |   1502 |
+|   3 |    NESTED LOOPS                |                 |      1 |   1500 |00:00:00.07 |    1515 |      3 |
+|   4 |     TABLE ACCESS BY INDEX ROWID| T_CUST54        |      1 |    500 |00:00:00.05 |     505 |      3 |
+|*  5 |      INDEX RANGE SCAN          | IX_T_CUST54_01  |      1 |    500 |00:00:00.01 |       5 |      0 |
+|*  6 |     INDEX RANGE SCAN           | PK_HOBBY54      |    500 |   1500 |00:00:00.02 |    1010 |      0 |
+|   7 |    TABLE ACCESS BY INDEX ROWID | T_HOBBY54       |   1500 |   1500 |00:00:13.45 |    1500 |   1499 |
+|*  8 |   TABLE ACCESS BY INDEX ROWID  | T_ORDER54       |    500 |      6 |00:01:52.10 |   16482 |  14876 |
+|*  9 |    INDEX RANGE SCAN            | IX_T_ORDER54_01 |    500 |  14945 |00:00:04.18 |    1537 |    319 |
+------------------------------------------------------------------------------------------------------------
+ 
+Predicate Information (identified by operation id):
+--------------------------------------------------- 
+   1 - filter( IS NOT NULL)
+   5 - access("C"."CUST_TYPE"='C010')
+   6 - access("H"."CUST_NO"="C"."CUST_NO")
+   8 - filter(("ORDER_DT" IS NULL AND "ORDER_TYPE"='010'))
+   9 - access("CUST_NO"=:B1)  */
