@@ -1,1 +1,43 @@
+DROP INDEX YOON.IX_T_고객23 ;
+DROP INDEX YOON.IX_T_주문23 ;
 
+CREATE INDEX YOON.IX_T_고객23 ON YOON.T_고객23(고객성향코드, 고객번호);
+CREATE INDEX YOON.IX_T_주문23 ON YOON.T_주문23(고객번호, 상품코드, 주문일자);
+
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('YOON', 'T_고객23');
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('YOON', 'T_주문23');
+
+ALTER SESSION SET STATISTICS_LEVEL=ALL;
+
+SELECT /*+ ORDERED USE_NL(O) INDEX(C IX_T_고객23) INDEX(D IX_T_주문23) */
+       C.고객번호,
+       O.주문번호, O.상품코드, O.주문일자, O.주문수량
+FROM T_고객23 C, T_주문23 O
+WHERE C.고객성향코드 = '920'
+ AND  O.고객번호     = C.고객번호
+ AND  O.주문일자     BETWEEN '20170101' AND '20170131'
+ AND  O.상품코드     = 'P103';
+ 
+ SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY_CURSOR(NULL, NULL, 'ALLSTATS LAST'));
+ 
+ /*
+PLAN_TABLE_OUTPUT
+----------------------------------------------------------------------------------------------------
+| Id  | Operation                    | Name      | Starts | E-Rows | A-Rows |   A-Time   | Buffers |
+----------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT             |           |      1 |        |     19 |00:00:00.01 |     246 |
+|   1 |  NESTED LOOPS                |           |      1 |        |     19 |00:00:00.01 |     246 |
+|   2 |   NESTED LOOPS               |           |      1 |    120 |     19 |00:00:00.01 |     227 |
+|*  3 |    INDEX RANGE SCAN          | IX_T_고객2|      1 |    110 |    110 |00:00:00.01 |       3 |
+|*  4 |    INDEX RANGE SCAN          | IX_T_주문2|    110 |      1 |     19 |00:00:00.01 |     224 |
+|   5 |   TABLE ACCESS BY INDEX ROWID| T_주문23  |     19 |      1 |     19 |00:00:00.01 |      19 |
+----------------------------------------------------------------------------------------------------
+ 
+Predicate Information (identified by operation id):
+---------------------------------------------------
+ 
+   3 - access("C"."고객성향코드"='920')
+   4 - access("O"."고객번호"="C"."고객번호" AND "O"."상품코드"='P103' AND "O"."주문일자">='20170101' AND 
+              "O"."주문일자"<='20170131')
+ 
+ */
