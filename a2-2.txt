@@ -1,0 +1,91 @@
+--문제)
+SELECT * FROM T_CUST33 
+WHERE CUST_CD = :CUST_CD
+  AND FLAG    LIKE :FLAG || '%'
+  AND DIV     = :DIV 
+;
+
+
+/* 
+정답)
+인덱스 생성 : CUST_CD + DIV + FLAG
+   ※ 만약 DIV가 BETWEEN 조회였다면 2개 생성
+      (CUST_CD + FLAG + DIV),  (CUST_CD + DIV)
+
+SQL 변경 : FLAG 칼럼의 NULL 여부에 따른 2가지 경우
+  1. NOT NULL일 경우
+     --  SQL을 줄이기 위해 아래와 같이 사용 가능
+     --  30회(2018.09) 주관식 기출문제
+*/
+
+SELECT * 
+FROM T_CUST33 
+WHERE CUST_CD = :CUST_CD
+  AND FLAG    =  NVL(:FLAG, FLAG)
+  AND DIV     = :DIV 
+/*
+PLAN_TABLE_OUTPUT
+----------------------------------------------------------------------------------------------------------------
+| Id  | Operation                     | Name        | Starts | E-Rows | A-Rows |   A-Time   | Buffers | Reads  |
+----------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT              |             |      1 |        |     10 |00:00:00.01 |      14 |      1 |
+|   1 |  CONCATENATION                |             |      1 |        |     10 |00:00:00.01 |      14 |      1 |
+|*  2 |   FILTER                      |             |      1 |        |      0 |00:00:00.01 |       0 |      0 |
+|   3 |    TABLE ACCESS BY INDEX ROWID| T_CUST33    |      0 |     76 |      0 |00:00:00.01 |       0 |      0 |
+|*  4 |     INDEX RANGE SCAN          | IX_T_CUST33 |      0 |     77 |      0 |00:00:00.01 |       0 |      0 |
+|*  5 |   FILTER                      |             |      1 |        |     10 |00:00:00.01 |      14 |      1 |
+|   6 |    TABLE ACCESS BY INDEX ROWID| T_CUST33    |      1 |      9 |     10 |00:00:00.01 |      14 |      1 |
+|*  7 |     INDEX RANGE SCAN          | IX_T_CUST33 |      1 |      9 |     10 |00:00:00.01 |       4 |      0 |
+----------------------------------------------------------------------------------------------------------------
+ 
+Predicate Information (identified by operation id):
+--------------------------------------------------- 
+   2 - filter(:FLAG IS NULL)
+   4 - access("CUST_CD"=:CUST_CD AND "DIV"=:DIV)
+       filter("FLAG" IS NOT NULL)
+   5 - filter(:FLAG IS NOT NULL)
+   7 - access("CUST_CD"=:CUST_CD AND "DIV"=:DIV AND "FLAG"=:FLAG)
+*/
+
+--2. FLAG 칼럼이 NULL 허용일 경우
+--   주관식 기출문제(자주 출제)
+SELECT * 
+FROM T_CUST33 
+WHERE :FLAG IS NOT NULL
+  AND CUST_CD = :CUST_CD
+  AND FLAG    = :FLAG
+  AND DIV     = :DIV 
+  
+UNION ALL
+
+SELECT * 
+FROM T_CUST33 
+WHERE :FLAG IS NULL
+  AND CUST_CD = :CUST_CD
+  AND DIV     = :DIV 
+;
+
+/*
+PLAN_TABLE_OUTPUT
+-------------------------------------------------------------------------------------------------------
+| Id  | Operation                     | Name        | Starts | E-Rows | A-Rows |   A-Time   | Buffers |
+-------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT              |             |      1 |        |     10 |00:00:00.01 |      14 |
+|   1 |  UNION-ALL                    |             |      1 |        |     10 |00:00:00.01 |      14 |
+|*  2 |   FILTER                      |             |      1 |        |     10 |00:00:00.01 |      14 |
+|   3 |    TABLE ACCESS BY INDEX ROWID| T_CUST33    |      1 |      9 |     10 |00:00:00.01 |      14 |
+|*  4 |     INDEX RANGE SCAN          | IX_T_CUST33 |      1 |      9 |     10 |00:00:00.01 |       4 |
+|*  5 |   FILTER                      |             |      1 |        |      0 |00:00:00.01 |       0 |
+|   6 |    TABLE ACCESS BY INDEX ROWID| T_CUST33    |      0 |     76 |      0 |00:00:00.01 |       0 |
+|*  7 |     INDEX RANGE SCAN          | IX_T_CUST33 |      0 |     77 |      0 |00:00:00.01 |       0 |
+-------------------------------------------------------------------------------------------------------
+ 
+Predicate Information (identified by operation id):
+---------------------------------------------------
+ 
+   2 - filter(:FLAG IS NOT NULL)
+   4 - access("CUST_CD"=:CUST_CD AND "DIV"=:DIV AND "FLAG"=:FLAG)
+   5 - filter(:FLAG IS NULL)
+   7 - access("CUST_CD"=:CUST_CD AND "DIV"=:DIV)
+ 
+*/
