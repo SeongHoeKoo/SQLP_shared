@@ -1,0 +1,125 @@
+3-1-1) setting
+
+DROP TABLE YOON.T_CUST41;
+CREATE TABLE YOON.T_CUST41
+  (CUST_NO       VARCHAR2(6),
+   CUST_NM       VARCHAR2(50),
+   CUST_CD       VARCHAR2(5),
+   C1           VARCHAR2(30),
+   C2           VARCHAR2(30),
+   C3           VARCHAR2(30),
+   C4           VARCHAR2(30),
+   C5           VARCHAR2(30),
+   CONSTRAINT PK_T_CUST41 PRIMARY KEY (CUST_NO)
+  );
+
+CREATE PUBLIC SYNONYM T_CUST41 FOR YOON.T_CUST41;
+
+INSERT /*+ APPEND */ INTO T_CUST41
+SELECT LPAD(TO_CHAR(ROWNUM), 6, '0')                                    CUST_NO
+     , RPAD(TO_CHAR(ROUND(DBMS_RANDOM.VALUE(1, 65000))), 10, '0')       CUST_NM
+     , RPAD(TO_CHAR(ROUND(DBMS_RANDOM.VALUE(1, 200))) || 'A', 5, '0')   CUST_CD
+     , 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'                                     C1
+     , 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'                                     C2
+     , 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'                                     C3
+     , 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'                                     C4
+     , 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'                                     C5
+FROM DUAL
+CONNECT BY LEVEL <= 70000;
+
+COMMIT;
+
+DROP TABLE YOON.T_ORDER41;
+CREATE TABLE YOON.T_ORDER41
+  ( ORDER_SN           VARCHAR2(7)
+  , CUST_NO            VARCHAR2(6)
+  , GOODS_CODE         VARCHAR2(5)
+  , ORDER_PRICE        NUMBER
+  , ORDER_QTY          NUMBER
+  , ORDER_DT           VARCHAR2(8)
+  , CONSTRAINT PK_T_ORDER41 PRIMARY KEY(ORDER_SN)
+  );
+  
+CREATE PUBLIC SYNONYM T_ORDER41 FOR YOON.T_ORDER41;
+
+DROP TABLE YOON.T_DATE;
+CREATE TABLE YOON.T_DATE AS
+SELECT TO_CHAR(TO_DATE('20160101', 'YYYYMMDD') + ROWNUM, 'YYYYMMDD') DT
+FROM DUAL
+CONNECT BY LEVEL <= 177
+;
+
+CREATE PUBLIC SYNONYM T_DATE FOR YOON.T_DATE;
+
+INSERT /*+ APPEND */ INTO T_ORDER41
+SELECT  LPAD(TO_CHAR(ROWNUM), 7, '0') ORDER_SN
+     ,  CASE WHEN ROWNUM <= 65000
+             THEN LPAD(TO_CHAR(ROWNUM), 6, '0') 
+             ELSE LPAD(TO_CHAR(DECODE(MOD(ROWNUM, 65000), 0, 1,MOD(ROWNUM, 65000))) ,6, '0')
+        END CUST_NO
+     , '00000'  GOODS_CODE
+     ,  ROWNUM * 10 ORDER_PRICE
+     ,  20 ORDER_QTY, DT ORDER_DT
+FROM T_DATE A,
+     (SELECT ROWNUM R_NUM FROM DUAL CONNECT BY LEVEL <= 8500) B
+WHERE DT >= '20151028'
+ORDER BY R_NUM
+;
+
+COMMIT;
+
+
+CREATE INDEX YOON.IX_T_CUST41_01 ON YOON.T_CUST41(CUST_CD);
+CREATE INDEX YOON.IX_T_ORDER41_01 ON YOON.T_ORDER41(CUST_NO, ORDER_DT);
+
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('YOON', 'T_ORDER41');
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('YOON', 'T_CUST41');
+
+
+-- 3-1-2) problem
+
+/*문제) 아래 쿼리를 튜닝 하시오.  (인덱스 추가 및 변경 불가능)
+  인덱스 
+   T_CUS41 : PK_T_CUST41(CUST_NO)
+     CREATE INDEX YOON.IX_T_CUST41_01 ON YOON.T_CUST41(CUST_CD);
+
+   T_ORDER41 
+     PK_T_ORDER41(ORDER_SN),  YOON.IX_T_ORDER41_01(CUST_NO, ORDER_DT);
+   
+  테이블정보-> T_CUST41  :    70,000건, CUST_CD 76A00은 355건 
+               T_ORDER41 : 1,504,500건
+
+쿼리) */
+SELECT /*+ LEADING(A) USE_NL(B) NO_PUSH_PRED(A) */ A.CUST_NO, A.CNT, A.PRICE, QTY, DT
+    ,  B.CUST_NM, B.C1, B.C2
+FROM (SELECT  /*+ NO_MERGE */ 
+          CUST_NO, COUNT(*) CNT, SUM(ORDER_PRICE) PRICE, SUM(ORDER_QTY) QTY, MAX(ORDER_DT) DT
+      FROM T_ORDER41
+      WHERE ORDER_DT BETWEEN '20160302'   AND  '20160302'
+      GROUP BY CUST_NO
+      ) A,  T_CUST41 B
+WHERE B.CUST_NO = A.CUST_NO
+ AND  B.CUST_CD = '76A00'
+ ;
+/*
+PLAN_TABLE_OUTPUT
+----------------------------------------------------------------------
+| Id  | Operation                    | Name        | A-Rows |Buffers |
+----------------------------------------------------------------------
+|   0 | SELECT STATEMENT             |             |     38 |  26174 |
+|   1 |  NESTED LOOPS                |             |     38 |  26174 |
+|   2 |   NESTED LOOPS               |             |   8500 |  17674 |
+|   3 |    VIEW                      |             |   8500 |   9171 |
+|   4 |     HASH GROUP BY            |             |   8500 |   9171 |
+|*  5 |      TABLE ACCESS FULL       | T_ORDER41   |   8500 |   9171 |
+|*  6 |    INDEX UNIQUE SCAN         | PK_T_CUST41 |   8500 |   8503 |
+|*  7 |   TABLE ACCESS BY INDEX ROWID| T_CUST41    |     38 |   8500 |
+----------------------------------------------------------------------
+ 
+Predicate Information (identified by operation id):
+---------------------------------------------------
+ 
+   5 - filter("ORDER_DT"='20160302')
+   6 - access("B"."CUST_NO"="A"."CUST_NO")
+   7 - filter("B"."CUST_CD"='76A00')
+*/
