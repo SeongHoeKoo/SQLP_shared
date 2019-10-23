@@ -1,0 +1,97 @@
+push_pred
+
+5장. 고급 SQL 튜닝
+    1) CASE문 활용
+        - Exclusive할 경우 그 분류만큼 Table Access
+        * CASE WHEN THEN END 절로 한번만 Access
+        * ELSE 0을 줄경우 SUM 연산에 참여하므로 지연 발생
+    2)
+
+    3) UNION ALL을 활용한 M:M 관계의 조인
+        - FULL OUTER JOIN을 쉽게 해결 가능함.
+
+    4) WITH 구문 활용
+        - 임시테이블을 활용하여 테이블을 여러번 읽지 않도록 함
+
+6. 소트 튜닝
+    1) 소트와 성능
+        * UGA 위치
+            - 전용서버 방식 : PGA
+            - 공유서버 방식 : SGA
+
+        * 소트를 발생시키는 오퍼레이션
+            (1) Sort Aggregate
+                - 전체 로우를 대상으로 집계를 수행할 때 발생
+                * 실제 소트는 발생하지 않음
+            (2) Sort Order by
+            (3) Sort Group by
+                - Sorting 알고리즘을 사용해 그룹별 집계를 수행할 때 발생
+                * ORDER BY 절을 함께 명시하지 않으면 HASH GROUP BY 됨
+                * 이 경우 결과값이 정렬되지 않음
+            (4) Sort Unique
+                * UNNESTING 된 서브쿼리가 M쪽 집합이거나 인덱스가 없거나 세미 조인으로 수행되지 않으면
+                * 중복 레코드 제거를 위해 SORT UNIQUE 발생
+                ** 집합 연산자 중 UNION ALL만 중복 허용
+
+            (5) Sort JOIN
+                - 소트머지 조인을 수행할 때 발생
+            (6) Window Sort
+                - 분석함수를 수행할 때 발생
+            ** J O  G A  U W
+
+        * 소트가 발생하지 않도록 SQL 작성
+           1) UNION 대신 UNION ALL 활용
+           2) DISTINCT를 EXISTS로 대체 - NL SEMI조인을 한다 ** 시험에 주구장창
+           3) 불필요한 COUNT 연산 제거를
+
+        * 인덱스를 이용한 소트 연산 대체
+           1) SORT ORDER BY - 인덱스에 정렬컬럼 추가
+           2) SORT GROUP BY
+
+        * Sort Area를 적게 사용하도록 SQL 작성
+            - 미리 소트 후 CONCAT 시키기
+
+        * Top-N 쿼리
+            * SQL Server : TOP 10
+            *
+            * Oracle : rownum <= 10 ** STOPKEY가 발생하면 PERFORMANCE 향상
+            * MAX보다는 RANK/ROWNUM을 활용할 것
+
+        * 게시판 쿼리
+            - STOPKEY가 발생안하면 TOP-N 쿼리가 아님
+            * STOPKEY를 사용하려면 NAIVE하게 ROWNUM을 사용해야 함 // SELECT 절에 ALIAS 붙여서 사용해도 안탐.
+    7. 파티션
+        * SELECT * FROM TB_SIC_ITEM_REF03 PARTION(PTREF03);
+        * LOCAL PARTITION INDEX의 경우 반드시 파티션키가 있어야 함(없으면 수직적 탐색 횟수 많아짐)
+        * NON-PARTITIONED INDEX의 경우 PARTITION DROP/TRUNCATE가 자유롭지 못함
+        * GLOBAL PARTITION INDEX는 잘 안씀 // 쓴적이 없음 // 쓴걸 본적도 없음
+        (파티션 키로 구성되지 않음)
+        * 파티션 PRUNING이 필요!!
+
+        2. 파티션 유형
+            (1) Range 파티셔닝
+            (2) Hash 파티셔닝 ** 병렬처리시 성능 극대화
+            (3) List 파티셔닝 ** 불연속적인 값의 목록(지역)
+            (4) Composite 파티셔닝
+            ** VALUES LESS THAN ** MAXVALUE를 쓰지말고 미리 넉넉히 파티셔닝 해둘것
+
+        3. 파티션 Pruning
+
+        4. 인덱스 파티셔닝
+            ** LOCAL : 파티션 내부 / GLOBAL : 파티션과 관계 없이
+            ** Prefixed : 파티션 키 컬럼을 인덱스 선두 컬럼에 위치 / Nonprefixed : 인덱스 선두컬럼이 아닌 곳에 파티션 키 컬럼 위치 / 파티션키를 사용하지 않음
+            ** Nonpartitioned Index : 파티션 되지 않은 인덱스
+            ** Nonprefixed Global 인덱스는 없다
+
+    8. 배치
+        (1) 배치 프로그램 튜닝
+
+        (2) 병렬처리 활용
+            - 통상적으로 FULL SCAN과 같이 사용(P->P 미발생))
+            * SELECT /*+ FULL(A) PARALLEL(A 2) */
+                FROM EMP A
+            * ORDER BY 혹은 GROUP BY가 있을 경우 Parellel Degree * 2 만큼 서버 프로세스 생성됨.(P->P 발생)
+            * S->P (P from S) / P->P (P to P)/ P->S (P to S)
+            * PQ_Distribute(통신 방식) : Range / Broadcast / Key / Hash / Round-Robin
+            * 서버 프로세스 개수 = P->P 있으면 Degree * 2 / 없으면 Degree 만큼
+            
