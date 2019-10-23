@@ -1,0 +1,113 @@
+-- 4-1-1) setting
+
+DROP TABLE YOON.T_MANUF53;
+CREATE TABLE YOON.T_MANUF53
+    (  M_CODE   VARCHAR2(2)
+     , M_NM     VARCHAR2(50)
+     , CONSTRAINT PK_T_MANUF53 PRIMARY KEY (M_CODE)
+     )
+;
+
+CREATE PUBLIC SYNONYM T_MANUF53 FOR YOON.T_MANUF53;
+
+INSERT /*+ APPEND */ INTO T_MANUF53
+SELECT LPAD(TO_CHAR(ROWNUM), 2, '0')  M_CODE
+     , LPAD(TO_CHAR(ROWNUM), 50, '0') M_NM
+FROM DUAL  CONNECT BY LEVEL <= 50
+;
+
+COMMIT;
+
+DROP TABLE YOON.T_PRODUCT53;
+CREATE TABLE YOON.T_PRODUCT53
+     (  PROD_ID     VARCHAR2(5)
+      , PROD_NM     VARCHAR2(50)
+      , M_CODE      VARCHAR2(2)
+      , CONSTRAINT PK_T_PRODUCT53 PRIMARY KEY(PROD_ID)
+      )
+;
+
+CREATE PUBLIC SYNONYM T_PRODUCT53 FOR YOON.T_PRODUCT53;
+
+INSERT /*+ APPEND */ INTO T_PRODUCT53
+SELECT LPAD(TO_CHAR(ROWNUM),  5, '0') PROD_ID
+     , LPAD(TO_CHAR(ROWNUM), 50, '0') PROD_NM
+     , LPAD(TO_CHAR(ROUND(DBMS_RANDOM.VALUE(1, 50))), 2, '0') M_CODE
+FROM DUAL  CONNECT BY LEVEL <= 10000
+;
+
+COMMIT;
+
+DROP TABLE YOON.T_ORDER53;
+CREATE TABLE YOON.T_ORDER53
+  (  ORDER_NO   VARCHAR2(8)
+   , ORDER_DT   VARCHAR2(8)
+   , PROD_ID    VARCHAR2(50)
+   , CONSTRAINT PK_T_ORDER53 PRIMARY KEY(ORDER_NO)
+  )
+;
+
+CREATE PUBLIC SYNONYM T_ORDER53 FOR YOON.T_ORDER53;
+
+INSERT /*+ APPEND */ INTO T_ORDER53
+SELECT LPAD(TO_CHAR(ROWNUM),  8, '0') ORDER_NO, ORDER_DT, PROD_ID     
+FROM  (SELECT PROD_ID, ROWNUM P_NUM 
+            , CASE WHEN ROWNUM > 200 THEN TO_CHAR(TO_DATE('20081231') - (ROWNUM - 200), 'YYYYMMDD')
+                                     ELSE TO_CHAR(TO_DATE('20081231') + ROWNUM, 'YYYYMMDD')
+              END ORDER_DT
+       FROM T_PRODUCT53) A, 
+      (SELECT ROWNUM FROM DUAL CONNECT BY LEVEL <= 1000) B
+;
+
+COMMIT;
+
+SELECT COUNT(*) FROM T_MANUF53;
+SELECT COUNT(*) FROM T_PRODUCT53;
+SELECT COUNT(*) FROM T_ORDER53;
+
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('YOON', 'T_MANUF53');
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('YOON', 'T_PRODUCT53');
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('YOON', 'T_ORDER53');
+
+-- 4-1-2) problem
+
+/* 아래 SQL은 OLTP 에서 자주 사용되는구문이다. trace를 보고 튜닝을 하시오. (인덱스 변경 가능)
+테이블 정보
+ - T_ORDER53   : 0.1 억 건 (20090101 이후 200,000건)
+ - T_PRODUCT53 : 10,000건
+ - T_MANUF53   : 50건
+인덱스 
+  PRODUCT53 : PK_T_PRODUCT53(PROD_ID);
+  T_MANUF53 : PK_T_MANUF53(M_CODE);  
+*/
+SELECT /*+ ORDERED USE_NL(B C) */
+       DISTINCT B.M_CODE, C.M_NM
+FROM T_ORDER53 A, 
+     T_PRODUCT53 B, 
+     T_MANUF53 C
+WHERE A.ORDER_DT >= '20090101'
+AND A.PROD_ID    = B.PROD_ID
+AND B.M_CODE     = C.M_CODE;
+/*
+---------------------------------------------------------------------------------------
+| Id  | Operation                       | Name            | A-Rows | Buffers | Reads  |
+---------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT                |                 |     50 |   40579 |  40161 |
+|   1 |  HASH UNIQUE                    |                 |     50 |   40579 |  40161 |
+|   2 |   NESTED LOOPS                  |                 |    200 |   40579 |  40161 |
+|   3 |    NESTED LOOPS                 |                 |    200 |   40379 |  40161 |
+|   4 |     NESTED LOOPS                |                 |    200 |   40375 |  40161 |
+|   5 |      VIEW                       | VW_DTP_377C5901 |    200 |   40166 |  40161 |
+|   6 |       HASH UNIQUE               |                 |    200 |   40166 |  40161 |
+|*  7 |        TABLE ACCESS FULL        | T_ORDER53       |    200K|   40166 |  40161 |
+|   8 |      TABLE ACCESS BY INDEX ROWID| T_PRODUCT53     |    200 |     209 |      0 |
+|*  9 |       INDEX UNIQUE SCAN         | PK_T_PRODUCT53  |    200 |       9 |      0 |
+|* 10 |     INDEX UNIQUE SCAN           | PK_T_MANUF53    |    200 |       4 |      0 |
+|  11 |    TABLE ACCESS BY INDEX ROWID  | T_MANUF53       |    200 |     200 |      0 |
+---------------------------------------------------------------------------------------
+Predicate Information (identified by operation id):
+---------------------------------------------------
+   7 - filter("A"."ORDER_DT">='20090101')
+   9 - access("ITEM_1"="B"."PROD_ID")
+  10 - access("B"."M_CODE"="C"."M_CODE")
+*/
