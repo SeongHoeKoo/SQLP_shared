@@ -1,0 +1,32 @@
+SELECT /*+ LEADING(B) USE_NL(A)  */
+       A.CUST_NO, A.CNT, A.PRICE, QTY, DT
+    ,  B.CUST_NM, B.C1, B.C2
+FROM (SELECT /*+ MERGE */
+             CUST_NO, COUNT(*) CNT, SUM(ORDER_PRICE) PRICE, SUM(ORDER_QTY) QTY, MAX(ORDER_DT) DT
+      FROM T_ORDER41
+      WHERE ORDER_DT BETWEEN '20160302'   AND  '20160302'
+      GROUP BY CUST_NO
+      ) A, T_CUST41 B
+WHERE B.CUST_CD = '76A00'
+ AND  A.CUST_NO = B.CUST_NO
+/*
+--------------------------------------------------------------------------------------------------
+| Id  | Operation                      | Name            | Rows  | Bytes | Cost (%CPU)| Time     |
+--------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT               |                 |     1 |   103 |  1380   (1)| 00:00:17 |
+|   1 |  HASH GROUP BY                 |                 |     1 |   103 |  1380   (1)| 00:00:17 |
+|   2 |   NESTED LOOPS                 |                 |       |       |            |          |
+|   3 |    NESTED LOOPS                |                 |   378 | 38934 |  1379   (0)| 00:00:17 |
+|   4 |     TABLE ACCESS BY INDEX ROWID| T_CUST41        |   355 | 29110 |   330   (0)| 00:00:04 |
+|*  5 |      INDEX RANGE SCAN          | IX_T_CUST41_01  |   355 |       |     1   (0)| 00:00:01 |
+|*  6 |     INDEX RANGE SCAN           | IX_T_ORDER41_01 |     1 |       |     2   (0)| 00:00:01 |
+|   7 |    TABLE ACCESS BY INDEX ROWID | T_ORDER41       |     1 |    21 |     3   (0)| 00:00:01 |
+--------------------------------------------------------------------------------------------------
+ 
+Predicate Information (identified by operation id):
+---------------------------------------------------
+ 
+   5 - access("B"."CUST_CD"='76A00')
+   6 - access("CUST_NO"="B"."CUST_NO" AND "ORDER_DT"='20160302')
+ 
+*/
