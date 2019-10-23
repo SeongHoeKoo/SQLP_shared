@@ -1,124 +1,93 @@
-DROP INDEX YOON.IX_T_CUST52_01;
-CREATE INDEX YOON.IX_T_CUST52_01 ON YOON.T_CUST52(CUST_NM);
+DROP   INDEX YOON.IX_T_CUST54_01;
+CREATE INDEX YOON.IX_T_CUST54_01 ON YOON.T_CUST54(CUST_TYPE, CUST_NO);
 
-DROP INDEX YOON.IX_T_CONT52_01;
-CREATE INDEX YOON.IX_T_CONT52_01 ON YOON.T_CONT52(CUST_NO, CONT_DT);
+DROP   INDEX YOON.IX_T_ORDER54_01;
+CREATE INDEX YOON.IX_T_ORDER54_02 ON YOON.T_ORDER54(CUST_NO, ORDER_TYPE, ORDER_DT);
 
-DROP INDEX YOON.IX_T_CONT52_02;
-CREATE INDEX YOON.IX_T_CONT52_02 ON YOON.T_CONT52(CONT_DT);
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('YOON', 'T_CUST54');
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('YOON', 'T_ORDER54');
 
-EXECUTE DBMS_STATS.GATHER_TABLE_STATS('YOON', 'T_CONT52');
-EXECUTE DBMS_STATS.GATHER_TABLE_STATS('YOON', 'T_CUST52');
+ALTER SESSION SET STATISTICS_LEVEL=ALL;
 
-ALTER SESSION SET STATISTICS_LEVEL = ALL;
-/* T_CUST52(CUST_NM)
-   T_CONT52(CUST_NO + CONT_DT),  (CONT_DT)  */
-   
-SELECT /*+ ORDERED USE_NL(B) INDEX(A IX_T_CUST52_01) INDEX(B IX_T_CONT52_01)*/
-      A.CUST_NO, A.CUST_NM, SUBSTR(A.JUMIN_NO, 1, 6) JUMIN_NO
-     , TO_CHAR(B.CONT_DT, 'YYYY-MM-DD') CONT_DT
-     , TO_CHAR(B.TERMI_DT, 'YYYY-MM-DD') TERMI_DT, B.TERMI_AMT
-FROM T_CUST52 A, T_CONT52 B
-WHERE :CUST_NM IS NOT NULL
- AND  CUST_NM = :CUST_NM
- AND  JUMIN_NO LIKE :JUMIN_NO ||'%'
- AND  B.CUST_NO = A.CUST_NO
- AND  B.CONT_DT BETWEEN to_date(:START_DT, 'YYYY.MM.DD') AND TO_DATE(:END_DT ||' 235959', 'YYYY.MM.DD HH24MISS') 
+/*==========================================================================================
+   1. PUSH_SUBQ 방식 처리 
+      - JOIN 순서 조정하는 것 보다 근소하게 유리
+      - 이유 : 조인은  T_CUST54 에 대한 랜덤 액세스를 인덱스를 읽어 바로 시도
+               PUSH_SUBQ 방식은 T_CUST54 인덱스와 T_ORDER54 인덱스를 필터링 후
+               테이블 랜덤 액세스를 하기 때문에 랜덤 액세스 량을 줄일 수 있음                
+==========================================================================================*/
+
+SELECT /*+ LEADING (C) USE_NL(H)*/ C.CUST_NO, C.CUST_NM, H.HOBBY_TYPE, H.C11
+FROM T_CUST54 C,  T_HOBBY54 H
+WHERE C.CUST_TYPE    = 'C010'
+  AND H.CUST_NO = C.CUST_NO
+  AND EXISTS (SELECT /*+ NO_UNNEST PUSH_SUBQ*/ 1
+              FROM T_ORDER54 O
+              WHERE CUST_NO    = C.CUST_NO
+               AND  ORDER_TYPE = '010'
+               AND  ORDER_DT IS NULL
+              );
+
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY_CURSOR(NULL, NULL, 'IOSTATS LAST'));
+
+/*------------------------------------------------------------------------------------------------------------------
+| Id  | Operation                     | Name            | Starts | E-Rows | A-Rows |   A-Time   | Buffers | Reads  |
+--------------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT              |                 |      1 |        |      0 |00:00:00.07 |    1504 |    311 |
+|   1 |  NESTED LOOPS                 |                 |      1 |        |      0 |00:00:00.07 |    1504 |    311 |
+|   2 |   NESTED LOOPS                |                 |      1 |     92 |      0 |00:00:00.07 |    1504 |    311 |
+|   3 |    TABLE ACCESS BY INDEX ROWID| T_CUST54        |      1 |     31 |      0 |00:00:00.07 |    1504 |    311 |
+|*  4 |     INDEX RANGE SCAN          | IX_T_CUST54_01  |      1 |     31 |      0 |00:00:00.07 |    1504 |    311 |
+|*  5 |      INDEX RANGE SCAN         | IX_T_ORDER54_02 |    500 |      1 |      0 |00:00:00.07 |    1501 |    309 |
+|*  6 |    INDEX RANGE SCAN           | PK_HOBBY54      |      0 |      3 |      0 |00:00:00.01 |       0 |      0 |
+|   7 |   TABLE ACCESS BY INDEX ROWID | T_HOBBY54       |      0 |      3 |      0 |00:00:00.01 |       0 |      0 |
+--------------------------------------------------------------------------------------------------------------------
+Predicate Information (identified by operation id):
+---------------------------------------------------
+   4 - access("C"."CUST_TYPE"='C010')
+       filter( IS NOT NULL)
+   5 - access("CUST_NO"=:B1 AND "ORDER_TYPE"='010' AND "ORDER_DT" IS NULL)
+   6 - access("H"."CUST_NO"="C"."CUST_NO")
  
-UNION ALL
-SELECT /*+ ORDERED USE_NL(A) INDEX(B IX_T_CONT52_02) */
-       A.CUST_NO, A.CUST_NM,  SUBSTR(A.JUMIN_NO, 1, 6) JUMIN_NO
-     , TO_CHAR(B.CONT_DT, 'YYYY-MM-DD') CONT_DT
-     , TO_CHAR(B.TERMI_DT, 'YYYY-MM-DD') TERMI_DT, B.TERMI_AMT
-FROM T_CONT52 B, T_CUST52 A
-WHERE :CUST_NM IS NULL
- AND  B.CONT_DT BETWEEN to_date(:START_DT, 'YYYY.MM.DD') AND TO_DATE(:END_DT ||' 235959', 'YYYY.MM.DD HH24MISS') 
- AND  A.CUST_NO = B.CUST_NO
-;
+*/
+
+/*==========================================================================================
+                조인 순서 조정
+==========================================================================================*/
+SELECT /*+ LEADING (C O@T_ORDER54 H) NL_SJ(O@T_ORDER54) USE_NL(H)*/ C.CUST_NO, C.CUST_NM, H.HOBBY_TYPE, H.C11
+FROM T_CUST54 C,  T_HOBBY54 H
+WHERE C.CUST_TYPE    = 'C010'
+  AND H.CUST_NO = C.CUST_NO
+  AND EXISTS (SELECT /*+ QB_NAME(T_ORDER54) UNNEST */ 1
+              FROM T_ORDER54 O
+              WHERE CUST_NO    = C.CUST_NO
+               AND  ORDER_TYPE = '010'
+               AND  ORDER_DT IS NULL
+              );
 
 SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY_CURSOR(NULL, NULL, 'ALLSTATS LAST'));
+
 /*
-이름을 넣지 않았을 때
-:cust_nm : NULL
-:jumin_no: NULL
-:start_dt: '2016.04.18'
-:end_dt  : '2016.04.19'
-
 PLAN_TABLE_OUTPUT
 ---------------------------------------------------------------------------------------------------------------------
-| Id  | Operation                       | Name           | Starts | E-Rows | A-Rows |   A-Time   | Buffers | Reads  |
+| Id  | Operation                      | Name            | Starts | E-Rows | A-Rows |   A-Time   | Buffers | Reads  |
 ---------------------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT                |                |      1 |        |   3000 |00:00:00.88 |   12014 |   2779 |
-|   1 |  UNION-ALL                      |                |      1 |        |   3000 |00:00:00.88 |   12014 |   2779 |
-|*  2 |   FILTER                        |                |      1 |        |      0 |00:00:00.01 |       0 |      0 |
-|   3 |    NESTED LOOPS                 |                |      0 |        |      0 |00:00:00.01 |       0 |      0 |
-|   4 |     NESTED LOOPS                |                |      0 |      2 |      0 |00:00:00.01 |       0 |      0 |
-|*  5 |      TABLE ACCESS BY INDEX ROWID| T_CUST52       |      0 |      2 |      0 |00:00:00.01 |       0 |      0 |
-|*  6 |       INDEX RANGE SCAN          | IX_T_CUST52_01 |      0 |      2 |      0 |00:00:00.01 |       0 |      0 |
-|*  7 |      INDEX RANGE SCAN           | IX_T_CONT52_01 |      0 |      1 |      0 |00:00:00.01 |       0 |      0 |
-|   8 |     TABLE ACCESS BY INDEX ROWID | T_CONT52       |      0 |      1 |      0 |00:00:00.01 |       0 |      0 |
-|*  9 |   FILTER                        |                |      1 |        |   3000 |00:00:00.87 |   12014 |   2779 |
-|  10 |    NESTED LOOPS                 |                |      1 |        |   3000 |00:00:00.87 |   12014 |   2779 |
-|  11 |     NESTED LOOPS                |                |      1 |   1000 |   3000 |00:00:00.34 |    9014 |   1047 |
-|  12 |      TABLE ACCESS BY INDEX ROWID| T_CONT52       |      1 |   1000 |   3000 |00:00:00.30 |    3012 |   1014 |
-|* 13 |       INDEX RANGE SCAN          | IX_T_CONT52_02 |      1 |   1000 |   3000 |00:00:00.01 |      12 |      1 |
-|* 14 |      INDEX UNIQUE SCAN          | PK_T_CUST      |   3000 |      1 |   3000 |00:00:00.03 |    6002 |     33 |
-|  15 |     TABLE ACCESS BY INDEX ROWID | T_CUST52       |   3000 |      1 |   3000 |00:00:00.53 |    3000 |   1732 |
+|   0 | SELECT STATEMENT               |                 |      1 |        |     15 |00:00:00.31 |    1538 |   1672 |
+|   1 |  NESTED LOOPS                  |                 |      1 |        |     15 |00:00:00.31 |    1538 |   1672 |
+|   2 |   NESTED LOOPS                 |                 |      1 |    150 |     15 |00:00:00.31 |    1522 |   1657 |
+|   3 |    NESTED LOOPS SEMI           |                 |      1 |     50 |      5 |00:00:00.31 |    1509 |   1650 |
+|   4 |     TABLE ACCESS BY INDEX ROWID| T_CUST54        |      1 |    500 |    500 |00:00:00.16 |     505 |   1076 |
+|*  5 |      INDEX RANGE SCAN          | IX_T_CUST54_01  |      1 |    500 |    500 |00:00:00.01 |       4 |      3 |
+|*  6 |     INDEX RANGE SCAN           | IX_T_ORDER54_02 |    500 |      5 |      5 |00:00:00.15 |    1004 |    574 |
+|*  7 |    INDEX RANGE SCAN            | PK_HOBBY54      |      5 |      3 |     15 |00:00:00.01 |      13 |      7 |
+|   8 |   TABLE ACCESS BY INDEX ROWID  | T_HOBBY54       |     15 |      3 |     15 |00:00:00.01 |      16 |     15 |
 ---------------------------------------------------------------------------------------------------------------------
  
 Predicate Information (identified by operation id):
 ---------------------------------------------------
  
-   2 - filter((:CUST_NM IS NOT NULL AND TO_DATE(:START_DT,'YYYYMMDD')<=TO_DATE(:END_DT,'YYYYMMDD')+1))
-   5 - filter("JUMIN_NO" LIKE :JUMIN_NO||'%')
-   6 - access("CUST_NM"=:CUST_NM)
-   7 - access("B"."CUST_NO"="A"."CUST_NO" AND "B"."CONT_DT">=TO_DATE(:START_DT,'YYYYMMDD') AND 
-              "B"."CONT_DT"<=TO_DATE(:END_DT,'YYYYMMDD')+1)
-   9 - filter((TO_DATE(:START_DT,'YYYYMMDD')<=TO_DATE(:END_DT,'YYYYMMDD')+1 AND :CUST_NM IS NULL))
-  13 - access("B"."CONT_DT">=TO_DATE(:START_DT,'YYYYMMDD') AND "B"."CONT_DT"<=TO_DATE(:END_DT,'YYYYMMDD')+1)
-  14 - access("A"."CUST_NO"="B"."CUST_NO")
- 
-
-
----------------------------------------- 이름을 넣었을 때
-BIND 변수
-:cust_nm : '0000855215'
-:jumin_no: '0000000432128'
-:start_dt: '20160418'
-:end_dt  : '20160424'
-
-PLAN_TABLE_OUTPUT
----------------------------------------------------------------------------------------------------------------------
-| Id  | Operation                       | Name           | Starts | E-Rows | A-Rows |   A-Time   | Buffers | Reads  |
----------------------------------------------------------------------------------------------------------------------
-|   0 | SELECT STATEMENT                |                |      1 |        |      1 |00:00:00.01 |      11 |      2 |
-|   1 |  UNION-ALL                      |                |      1 |        |      1 |00:00:00.01 |      11 |      2 |
-|*  2 |   FILTER                        |                |      1 |        |      1 |00:00:00.01 |      11 |      2 |
-|   3 |    NESTED LOOPS                 |                |      1 |        |      1 |00:00:00.01 |      11 |      2 |
-|   4 |     NESTED LOOPS                |                |      1 |      1 |      1 |00:00:00.01 |      10 |      2 |
-|*  5 |      TABLE ACCESS BY INDEX ROWID| T_CUST52       |      1 |      1 |      1 |00:00:00.01 |       6 |      2 |
-|*  6 |       INDEX RANGE SCAN          | IX_T_CUST52_01 |      1 |      2 |      2 |00:00:00.01 |       4 |      1 |
-|*  7 |      INDEX RANGE SCAN           | IX_T_CONT52_01 |      1 |      1 |      1 |00:00:00.01 |       4 |      0 |
-|   8 |     TABLE ACCESS BY INDEX ROWID | T_CONT52       |      1 |      1 |      1 |00:00:00.01 |       1 |      0 |
-|*  9 |   FILTER                        |                |      1 |        |      0 |00:00:00.01 |       0 |      0 |
-|  10 |    NESTED LOOPS                 |                |      0 |        |      0 |00:00:00.01 |       0 |      0 |
-|  11 |     NESTED LOOPS                |                |      0 |   9007 |      0 |00:00:00.01 |       0 |      0 |
-|  12 |      TABLE ACCESS BY INDEX ROWID| T_CONT52       |      0 |   9007 |      0 |00:00:00.01 |       0 |      0 |
-|* 13 |       INDEX RANGE SCAN          | IX_T_CONT52_02 |      0 |   9007 |      0 |00:00:00.01 |       0 |      0 |
-|* 14 |      INDEX UNIQUE SCAN          | PK_T_CUST      |      0 |      1 |      0 |00:00:00.01 |       0 |      0 |
-|  15 |     TABLE ACCESS BY INDEX ROWID | T_CUST52       |      0 |      1 |      0 |00:00:00.01 |       0 |      0 |
----------------------------------------------------------------------------------------------------------------------
- 
-Predicate Information (identified by operation id):
----------------------------------------------------
- 
-   2 - filter((:CUST_NM IS NOT NULL AND TO_DATE(:START_DT,'YYYYMMDD')<=TO_DATE(:END_DT,'YYYYMMDD')+1))
-   5 - filter("JUMIN_NO" LIKE :JUMIN_NO||'%')
-   6 - access("CUST_NM"=:CUST_NM)
-   7 - access("B"."CUST_NO"="A"."CUST_NO" AND "B"."CONT_DT">=TO_DATE(:START_DT,'YYYYMMDD') AND 
-              "B"."CONT_DT"<=TO_DATE(:END_DT,'YYYYMMDD')+1)
-   9 - filter((TO_DATE(:START_DT,'YYYYMMDD')<=TO_DATE(:END_DT,'YYYYMMDD')+1 AND :CUST_NM IS NULL))
-  13 - access("B"."CONT_DT">=TO_DATE(:START_DT,'YYYYMMDD') AND "B"."CONT_DT"<=TO_DATE(:END_DT,'YYYYMMDD')+1)
-  14 - access("A"."CUST_NO"="B"."CUST_NO")
+   5 - access("C"."CUST_TYPE"='C010')
+   6 - access("CUST_NO"="C"."CUST_NO" AND "ORDER_TYPE"='010' AND "ORDER_DT" IS NULL)
+   7 - access("H"."CUST_NO"="C"."CUST_NO")
  
 */
