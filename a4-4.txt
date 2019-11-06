@@ -1,0 +1,65 @@
+/* 인덱스 추가
+   주문상품_57 (주문번호+상품번호)
+*/
+
+CREATE INDEX YOON.IX_주문상품_57 ON YOON.주문상품_57(주문번호, 상품번호);
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('YOON', '주문상품_57');
+
+/* SQL 튜닝
+   주문을 드라이빙 테이블로하고 주문상품으로 조인
+   
+   M 레벨로 데이터가 출력되며, 고객과 상품은 중복 Access가 많음.
+   따라서 캐싱기능이 있는 Scholar Sub Query가 유리 함.
+   
+※ 스칼러 서브쿼리
+8i, 9i는 cache entry 256개
+10g 이상 _query_execution_cache_max_size 만큼 (65,536개)
+즉 10g 이상일 경우 메인쿼리에서 반환하는 값이 65,536개 미만이고, 중복값이 많을 경우에 주로 효과
+
+*/
+
+
+ALTER SESSION SET STATISTICS_LEVEL = ALL;
+
+-- 스칼러 서브쿼리로 작성했을 경우
+SELECT /*+ LEADING(A) USE_NL(B) */
+       A.고객번호
+     , (SELECT 고객명 FROM 고객_57 WHERE 고객번호 = A.고객번호) 고객명
+     , A.주문번호, A.주문일자
+     , B.일련번호, B.상품번호
+     , (SELECT 상품명 FROM 상품_57 WHERE 상품번호 = B.상품번호) 상품명
+FROM 주문_57 A, 주문상품_57 B
+WHERE A.주문일자 BETWEEN '20170719' AND '20170729'
+ AND  B.주문번호 = A.주문번호 
+ AND  B.상품번호 LIKE 'A%'   
+;
+
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY_CURSOR(NULL, NULL, 'IOSTATS LAST'));
+/*
+PLAN_TABLE_OUTPUT
+---------------------------------------------------------------------------------------------------------------
+| Id  | Operation                     | Name       | Starts | E-Rows | A-Rows |   A-Time   | Buffers | Reads  |
+---------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT              |            |      1 |        |    187 |00:00:00.01 |     108 |     10 |
+|   1 |  TABLE ACCESS BY INDEX ROWID  | 고객_57    |     58 |      1 |     58 |00:00:00.01 |      63 |      0 |
+|*  2 |   INDEX UNIQUE SCAN           | 고객_57_PK |     58 |      1 |     58 |00:00:00.01 |       5 |      0 |
+|   3 |  TABLE ACCESS BY INDEX ROWID  | 상품_57    |     15 |      1 |     15 |00:00:00.01 |      19 |      0 |
+|*  4 |   INDEX UNIQUE SCAN           | 상품_57_PK |     15 |      1 |     15 |00:00:00.01 |       4 |      0 |
+|   5 |  NESTED LOOPS                 |            |      1 |        |    187 |00:00:00.01 |     108 |     10 |
+|   6 |   NESTED LOOPS                |            |      1 |    243 |    187 |00:00:00.01 |      88 |      6 |
+|   7 |    TABLE ACCESS BY INDEX ROWID| 주문_57    |      1 |    239 |   1100 |00:00:00.01 |      16 |      0 |
+|*  8 |     INDEX RANGE SCAN          | 주문_57_X01|      1 |    239 |   1100 |00:00:00.01 |       8 |      0 |
+|*  9 |    INDEX RANGE SCAN           | IX_주문상품|   1100 |      1 |    187 |00:00:00.01 |      72 |      6 |
+|  10 |   TABLE ACCESS BY INDEX ROWID | 주문상품_57|    187 |      1 |    187 |00:00:00.01 |      20 |      4 |
+---------------------------------------------------------------------------------------------------------------
+ 
+Predicate Information (identified by operation id):
+---------------------------------------------------
+ 
+   2 - access("고객번호"=:B1)
+   4 - access("상품번호"=:B1)
+   8 - access("A"."주문일자">='20170719' AND "A"."주문일자"<='20170729')
+   9 - access("B"."주문번호"="A"."주문번호" AND "B"."상품번호" LIKE 'A%')
+       filter("B"."상품번호" LIKE 'A%')
+ 
+*/
