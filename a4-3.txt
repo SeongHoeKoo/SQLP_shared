@@ -1,0 +1,105 @@
+/*
+1. 문제 핵심
+   - CONTDT와 CONT_TM을 CONCATE 해서 조회해야 함
+   - 두 칼럼을 합친 것 이외에 별도로 CONTDT로 추가 조건을 줘서 드라이빙으로 유도
+   - 파티션은 프러닝이 일어난다면 LOCAL 인덱스가 유리
+   
+DROP INDEX YOON.IX_T_CONSULT55_01 ;
+CREATE INDEX YOON.IX_T_CONSULT55_01 ON YOON.T_CONSULT55(CONSULTANT_ID, CON_DT, CON_TM) LOCAL;
+EXECUTE DBMS_STATS.GATHER_TABLE_STATS('YOON', 'T_CONSULT55') ;
+*/
+
+-- 1번
+SELECT /*+ INDEX (A IX_T_CONSULT55_01) */
+       CONSULTANT_ID  
+       COUNT(*),                                                                상담건수    ,
+       NVL(SUM(CASE WHEN RSLT_CD = '0900' THEN 1 END), 0)                       상담완료건수, 
+       NVL(SUM(CASE WHEN RSLT_CD = '0900' AND AFTRSLT_CD = '21' THEN 1 END), 0) 부서이관건수,
+       COUNT(DISTINCT(CUST_ID))                                         상담고객수
+FROM T_CONSULT55 A
+WHERE CONSULTANT_ID = :CONSULTANT_ID
+ AND  CON_DT BETWEEN TO_CHAR(SYSDATE, 'YYYYMM') || '01' AND TO_CHAR(SYSDATE, 'YYYYMMDD')
+ AND  CON_DT || CON_TM <= TO_CHAR(SYSDATE, 'YYYYMMDD') || '1200'
+GROUP BY CONSULTANT_ID 
+; 
+
+
+--2번
+/*
+  - 인덱스 : CONSULTANT_ID, CON_DT, CON_TM
+  - 파티션 : CON_DT
+  - 인덱스(LOCAL? GLOBAL?)   LOCAL 인덱스
+*/
+
+
+/* XPLAN 결과 
+   
+1) 인덱스 : CONSULTANT_ID, CON_DT
+-------------------------------------------------------------------------------------------------------------------------------------------------
+| Id  | Operation                              | Name              | Starts | E-Rows | A-Rows |   A-Time   | Buffers |  OMem |  1Mem | Used-Mem |
+-------------------------------------------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT                       |                   |      1 |        |      1 |00:00:00.01 |     666 |       |       |          |
+|   1 |  SORT GROUP BY NOSORT                  |                   |      1 |      1 |      1 |00:00:00.01 |     666 |       |       |          |
+|   2 |   VIEW                                 | VW_DAG_0          |      1 |     31 |    812 |00:00:00.01 |     666 |       |       |          |
+|   3 |    HASH GROUP BY                       |                   |      1 |     31 |    812 |00:00:00.01 |     666 |   815K|   815K| 1337K (0)|
+|*  4 |     FILTER                             |                   |      1 |        |    812 |00:00:00.01 |     666 |       |       |          |
+|   5 |      PARTITION RANGE ITERATOR          |                   |      1 |     43 |    812 |00:00:00.01 |     666 |       |       |          |
+|*  6 |       TABLE ACCESS BY LOCAL INDEX ROWID| T_CONSULT55       |      1 |     43 |    812 |00:00:00.01 |     666 |       |       |          |
+|*  7 |        INDEX RANGE SCAN                | IX_T_CONSULT55_01 |      1 |     14 |    838 |00:00:00.01 |       5 |       |       |          |
+-------------------------------------------------------------------------------------------------------------------------------------------------
+ 
+Predicate Information (identified by operation id):
+---------------------------------------------------
+ 
+   4 - filter(TO_CHAR(SYSDATE@!,'YYYYMM')||'00'<=TO_CHAR(SYSDATE@!,'YYYYMMDD'))
+   6 - filter("CON_DT"||"CON_TM"<=TO_CHAR(SYSDATE@!,'YYYYMMDD')||'1200')
+   7 - access("CONSULTANT_ID"=:CONSULTANT_ID AND "CON_DT">=TO_CHAR(SYSDATE@!,'YYYYMM')||'00' AND 
+              "CON_DT"<=TO_CHAR(SYSDATE@!,'YYYYMMDD'))
+ 
+
+2) 인덱스 : CONSULTANT_ID, CON_DT, CON_TM
+-------------------------------------------------------------------------------------------------------------------------------------------------
+| Id  | Operation                              | Name              | Starts | E-Rows | A-Rows |   A-Time   | Buffers |  OMem |  1Mem | Used-Mem |
+-------------------------------------------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT                       |                   |      1 |        |      1 |00:00:00.01 |     804 |       |       |          |
+|   1 |  SORT GROUP BY NOSORT                  |                   |      1 |      1 |      1 |00:00:00.01 |     804 |       |       |          |
+|   2 |   VIEW                                 | VW_DAG_0          |      1 |     32 |    812 |00:00:00.01 |     804 |       |       |          |
+|   3 |    HASH GROUP BY                       |                   |      1 |     32 |    812 |00:00:00.01 |     804 |   815K|   815K| 1343K (0)|
+|*  4 |     FILTER                             |                   |      1 |        |    812 |00:00:00.01 |     804 |       |       |          |
+|   5 |      PARTITION RANGE ITERATOR          |                   |      1 |     45 |    812 |00:00:00.01 |     804 |       |       |          |
+|   6 |       TABLE ACCESS BY LOCAL INDEX ROWID| T_CONSULT55       |      1 |     45 |    812 |00:00:00.01 |     804 |       |       |          |
+|*  7 |        INDEX RANGE SCAN                | IX_T_CONSULT55_01 |      1 |      1 |    812 |00:00:00.01 |       6 |       |       |          |
+-------------------------------------------------------------------------------------------------------------------------------------------------
+ 
+Predicate Information (identified by operation id):
+---------------------------------------------------
+   4 - filter(TO_CHAR(SYSDATE@!,'YYYYMM')||'00'<=TO_CHAR(SYSDATE@!,'YYYYMMDD'))
+   7 - access("CONSULTANT_ID"=:CONSULTANT_ID AND "CON_DT">=TO_CHAR(SYSDATE@!,'YYYYMM')||'00' AND 
+              "CON_DT"<=TO_CHAR(SYSDATE@!,'YYYYMMDD'))
+       filter("CON_DT"||"CON_TM"<=TO_CHAR(SYSDATE@!,'YYYYMMDD')||'1200')
+
+
+3) PARTITION FULL SCAN
+------------------------------------------------------------------------------------------------------------------------------------------
+| Id  | Operation                    | Name        | Starts | E-Rows | A-Rows |   A-Time   | Buffers | Reads  |  OMem |  1Mem | Used-Mem |
+------------------------------------------------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT             |             |      1 |        |      1 |00:00:00.19 |    1928 |   1268 |       |       |          |
+|   1 |  SORT GROUP BY NOSORT        |             |      1 |      1 |      1 |00:00:00.19 |    1928 |   1268 |       |       |          |
+|   2 |   VIEW                       | VW_DAG_0    |      1 |     31 |    812 |00:00:00.19 |    1928 |   1268 |       |       |          |
+|   3 |    HASH GROUP BY             |             |      1 |     31 |    812 |00:00:00.19 |    1928 |   1268 |   815K|   815K| 1293K (0)|
+|*  4 |     FILTER                   |             |      1 |        |    812 |00:00:00.19 |    1928 |   1268 |       |       |          |
+|   5 |      PARTITION RANGE ITERATOR|             |      1 |     43 |    812 |00:00:00.19 |    1928 |   1268 |       |       |          |
+|*  6 |       TABLE ACCESS FULL      | T_CONSULT55 |      1 |     43 |    812 |00:00:00.19 |    1928 |   1268 |       |       |          |
+------------------------------------------------------------------------------------------------------------------------------------------
+ 
+Predicate Information (identified by operation id):
+---------------------------------------------------
+ 
+   4 - filter(TO_CHAR(SYSDATE@!,'YYYYMM')||'00'<=TO_CHAR(SYSDATE@!,'YYYYMMDD'))
+   6 - filter(("CONSULTANT_ID"=:CONSULTANT_ID AND "CON_DT"||"CON_TM"<=TO_CHAR(SYSDATE@!,'YYYYMMDD')||'1200' AND 
+              "CON_DT"<=TO_CHAR(SYSDATE@!,'YYYYMMDD') AND "CON_DT">=TO_CHAR(SYSDATE@!,'YYYYMM')||'00'))
+ 
+ 
+*/
+
+
